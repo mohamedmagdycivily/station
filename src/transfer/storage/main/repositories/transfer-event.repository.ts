@@ -27,6 +27,7 @@ export class TransferEventRepository extends TransferStoreInterface {
   ): Promise<TransferEvent[]> {
     return this.transferEventModel.bulkCreate(events as any[], {
       ignoreDuplicates: true,
+      conflictAttributes: ['event_id'],
     });
   }
 
@@ -57,7 +58,7 @@ export class TransferEventRepository extends TransferStoreInterface {
     const values = summaries
       .map(
         (_, i) =>
-          `(:station_id_${i}, :all_count_${i}, :approved_count_${i}, :approved_amount_${i}, NOW())`,
+          `(:station_id_${i}, :all_count_${i}, :approved_count_${i}, :approved_amount_${i})`,
       )
       .join(', ');
 
@@ -71,13 +72,12 @@ export class TransferEventRepository extends TransferStoreInterface {
 
     await this.sequelize.query(
       `INSERT INTO station_summaries
-         (station_id, all_events_count, approved_events_count, total_approved_amount, last_aggregated_at)
+         (station_id, all_events_count, approved_events_count, total_approved_amount)
        VALUES ${values}
        ON CONFLICT (station_id) DO UPDATE SET
          all_events_count = station_summaries.all_events_count + EXCLUDED.all_events_count,
          approved_events_count = station_summaries.approved_events_count + EXCLUDED.approved_events_count,
          total_approved_amount = station_summaries.total_approved_amount + EXCLUDED.total_approved_amount,
-         last_aggregated_at = NOW(),
          updated_at = NOW()`,
       { replacements },
     );

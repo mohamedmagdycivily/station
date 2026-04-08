@@ -28,10 +28,6 @@ export const up: Migration = async ({ context: sequelize }) => {
       allowNull: false,
       defaultValue: 0,
     },
-    last_aggregated_at: {
-      type: DataTypes.DATE,
-      allowNull: true,
-    },
     created_at: {
       type: DataTypes.DATE,
       allowNull: false,

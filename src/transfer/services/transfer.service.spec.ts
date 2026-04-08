@@ -174,11 +174,13 @@ describe('TransferService', () => {
         station_id: 'st-1',
         total_approved_amount: '200.0000',
         all_events_count: 2,
+        approved_events_count: 1,
       });
 
       const summary = await service.getStationSummary('st-1');
       expect(summary.total_approved_amount).toBe(200);
-      expect(summary.events_count).toBe(2);
+      expect(summary.all_events_count).toBe(2);
+      expect(summary.approved_events_count).toBe(1);
     });
   });
 
@@ -188,6 +190,7 @@ describe('TransferService', () => {
         station_id: 'st-1',
         total_approved_amount: '1250.7500',
         all_events_count: 15,
+        approved_events_count: 10,
       });
 
       const result = await service.getStationSummary('st-1');
@@ -195,7 +198,8 @@ describe('TransferService', () => {
       expect(result).toEqual({
         station_id: 'st-1',
         total_approved_amount: 1250.75,
-        events_count: 15,
+        all_events_count: 15,
+        approved_events_count: 10,
       });
     });
 
@@ -207,7 +211,8 @@ describe('TransferService', () => {
       expect(result).toEqual({
         station_id: 'non-existent',
         total_approved_amount: 0,
-        events_count: 0,
+        all_events_count: 0,
+        approved_events_count: 0,
       });
     });
   });

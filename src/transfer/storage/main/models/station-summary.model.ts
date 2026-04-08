@@ -52,13 +52,6 @@ export class StationSummary extends Model {
   })
   all_events_count: number;
 
-  @Column({
-    type: DataType.DATE,
-    allowNull: true,
-    field: 'last_aggregated_at',
-  })
-  last_aggregated_at: Date;
-
   @CreatedAt
   created_at: Date;
 

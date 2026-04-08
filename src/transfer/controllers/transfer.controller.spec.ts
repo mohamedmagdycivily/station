@@ -79,7 +79,8 @@ describe('Controllers', () => {
     transferService.getStationSummary.mockResolvedValue({
       station_id: 'st-1',
       total_approved_amount: 1250.75,
-      events_count: 15,
+      all_events_count: 15,
+      approved_events_count: 10,
     });
 
     const response = await request(app.getHttpServer())
@@ -90,7 +91,8 @@ describe('Controllers', () => {
     expect(response.body.data).toEqual({
       station_id: 'st-1',
       total_approved_amount: 1250.75,
-      events_count: 15,
+      all_events_count: 15,
+      approved_events_count: 10,
     });
   });
 

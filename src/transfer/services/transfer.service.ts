@@ -32,14 +32,16 @@ export class TransferService {
       return {
         station_id: stationId,
         total_approved_amount: 0,
-        events_count: 0,
+        all_events_count: 0,
+        approved_events_count: 0,
       };
     }
 
     return {
       station_id: summary.station_id,
       total_approved_amount: Number(summary.total_approved_amount),
-      events_count: summary.all_events_count,
+      all_events_count: summary.all_events_count,
+      approved_events_count: summary.approved_events_count,
     };
   }
 }
