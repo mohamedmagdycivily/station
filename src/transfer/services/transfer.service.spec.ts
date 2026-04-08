@@ -6,8 +6,7 @@ const createMockStore = () => ({
   bulkCreateEvents: jest.fn(),
   getStationSummary: jest.fn(),
   getUnprocessedEvents: jest.fn(),
-  markEventsProcessed: jest.fn(),
-  upsertStationSummaries: jest.fn(),
+  processAggregation: jest.fn(),
 });
 
 describe('TransferService', () => {

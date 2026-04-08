@@ -43,43 +43,46 @@ export class TransferEventRepository extends TransferStoreInterface {
     });
   }
 
-  async markEventsProcessed(eventIds: string[]): Promise<void> {
-    if (eventIds.length === 0) return;
+  async processAggregation(
+    summaries: StationAggregation[],
+    eventIds: string[],
+  ): Promise<void> {
+    await this.sequelize.transaction(async (t) => {
+      if (summaries.length > 0) {
+        const values = summaries
+          .map(
+            (_, i) =>
+              `(:station_id_${i}, :all_count_${i}, :approved_count_${i}, :approved_amount_${i})`,
+          )
+          .join(', ');
 
-    await this.transferEventModel.update(
-      { is_processed: true },
-      { where: { event_id: eventIds } },
-    );
-  }
+        const replacements: Record<string, string | number> = {};
+        summaries.forEach((s, i) => {
+          replacements[`station_id_${i}`] = s.station_id;
+          replacements[`all_count_${i}`] = s.all_events_count;
+          replacements[`approved_count_${i}`] = s.approved_events_count;
+          replacements[`approved_amount_${i}`] = s.total_approved_amount;
+        });
 
-  async upsertStationSummaries(summaries: StationAggregation[]): Promise<void> {
-    if (summaries.length === 0) return;
+        await this.sequelize.query(
+          `INSERT INTO station_summaries
+             (station_id, all_events_count, approved_events_count, total_approved_amount)
+           VALUES ${values}
+           ON CONFLICT (station_id) DO UPDATE SET
+             all_events_count = station_summaries.all_events_count + EXCLUDED.all_events_count,
+             approved_events_count = station_summaries.approved_events_count + EXCLUDED.approved_events_count,
+             total_approved_amount = station_summaries.total_approved_amount + EXCLUDED.total_approved_amount,
+             updated_at = NOW()`,
+          { replacements, transaction: t },
+        );
+      }
 
-    const values = summaries
-      .map(
-        (_, i) =>
-          `(:station_id_${i}, :all_count_${i}, :approved_count_${i}, :approved_amount_${i})`,
-      )
-      .join(', ');
-
-    const replacements: Record<string, string | number> = {};
-    summaries.forEach((s, i) => {
-      replacements[`station_id_${i}`] = s.station_id;
-      replacements[`all_count_${i}`] = s.all_events_count;
-      replacements[`approved_count_${i}`] = s.approved_events_count;
-      replacements[`approved_amount_${i}`] = s.total_approved_amount;
+      if (eventIds.length > 0) {
+        await this.transferEventModel.update(
+          { is_processed: true },
+          { where: { event_id: eventIds }, transaction: t },
+        );
+      }
     });
-
-    await this.sequelize.query(
-      `INSERT INTO station_summaries
-         (station_id, all_events_count, approved_events_count, total_approved_amount)
-       VALUES ${values}
-       ON CONFLICT (station_id) DO UPDATE SET
-         all_events_count = station_summaries.all_events_count + EXCLUDED.all_events_count,
-         approved_events_count = station_summaries.approved_events_count + EXCLUDED.approved_events_count,
-         total_approved_amount = station_summaries.total_approved_amount + EXCLUDED.total_approved_amount,
-         updated_at = NOW()`,
-      { replacements },
-    );
   }
 }

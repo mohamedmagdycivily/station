@@ -25,9 +25,8 @@ export abstract class TransferStoreInterface {
 
   abstract getUnprocessedEvents(): Promise<TransferEvent[]>;
 
-  abstract markEventsProcessed(eventIds: string[]): Promise<void>;
-
-  abstract upsertStationSummaries(
+  abstract processAggregation(
     summaries: StationAggregation[],
+    eventIds: string[],
   ): Promise<void>;
 }

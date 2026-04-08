@@ -5,8 +5,7 @@ const createMockStore = () => ({
   bulkCreateEvents: jest.fn(),
   getStationSummary: jest.fn(),
   getUnprocessedEvents: jest.fn(),
-  markEventsProcessed: jest.fn(),
-  upsertStationSummaries: jest.fn(),
+  processAggregation: jest.fn(),
 });
 
 describe('CronService', () => {
@@ -22,7 +21,7 @@ describe('CronService', () => {
     service = module.get<CronService>(CronService);
   });
 
-  it('should aggregate unprocessed events correctly per station', async () => {
+  it('should aggregate unprocessed events and call processAggregation with summaries and eventIds', async () => {
     store.getUnprocessedEvents.mockResolvedValue([
       {
         event_id: 'evt-1',
@@ -46,23 +45,39 @@ describe('CronService', () => {
 
     await service.aggregateStationSummaries();
 
-    expect(store.upsertStationSummaries).toHaveBeenCalledWith([
-      {
-        station_id: 'st-1',
-        all_events_count: 2,
-        approved_events_count: 1,
-        total_approved_amount: 100,
-      },
-      {
-        station_id: 'st-2',
-        all_events_count: 1,
-        approved_events_count: 1,
-        total_approved_amount: 300,
-      },
-    ]);
+    expect(store.processAggregation).toHaveBeenCalledWith(
+      [
+        {
+          station_id: 'st-1',
+          all_events_count: 2,
+          approved_events_count: 1,
+          total_approved_amount: 100,
+        },
+        {
+          station_id: 'st-2',
+          all_events_count: 1,
+          approved_events_count: 1,
+          total_approved_amount: 300,
+        },
+      ],
+      ['evt-1', 'evt-2', 'evt-3'],
+    );
   });
 
-  it('should mark events as processed after aggregation', async () => {
+  it('should skip when no unprocessed events exist', async () => {
+    store.getUnprocessedEvents.mockResolvedValue([]);
+
+    await service.aggregateStationSummaries();
+
+    expect(store.processAggregation).not.toHaveBeenCalled();
+  });
+
+  it('should skip when previous aggregation is still running', async () => {
+    let resolveFirst: () => void;
+    const blockingPromise = new Promise<void>((r) => {
+      resolveFirst = r;
+    });
+
     store.getUnprocessedEvents.mockResolvedValue([
       {
         event_id: 'evt-1',
@@ -70,16 +85,17 @@ describe('CronService', () => {
         amount: 100,
         status: 'approved',
       },
-      {
-        event_id: 'evt-2',
-        station_id: 'st-1',
-        amount: 200,
-        status: 'approved',
-      },
     ]);
+    store.processAggregation.mockImplementationOnce(() => blockingPromise);
 
-    await service.aggregateStationSummaries();
+    const first = service.aggregateStationSummaries();
+    const second = service.aggregateStationSummaries();
 
-    expect(store.markEventsProcessed).toHaveBeenCalledWith(['evt-1', 'evt-2']);
+    // second call should have returned early (isRunning guard)
+    await second;
+    expect(store.getUnprocessedEvents).toHaveBeenCalledTimes(1);
+
+    resolveFirst!();
+    await first;
   });
 });
