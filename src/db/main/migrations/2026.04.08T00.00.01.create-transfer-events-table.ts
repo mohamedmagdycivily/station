@@ -50,12 +50,6 @@ export const up: Migration = async ({ context: sequelize }) => {
   // Indexes
   await sequelize
     .getQueryInterface()
-    .addIndex('transfer_events', ['station_id', 'status'], {
-      name: 'idx_transfer_events_station_id_status',
-    });
-
-  await sequelize
-    .getQueryInterface()
     .addIndex('transfer_events', ['is_processed'], {
       name: 'idx_transfer_events_is_processed',
     });

@@ -5,10 +5,6 @@ import { Table, Column, Model, DataType } from 'sequelize-typescript';
   timestamps: false,
   indexes: [
     {
-      fields: ['station_id', 'status'],
-      name: 'idx_transfer_events_station_id_status',
-    },
-    {
       fields: ['is_processed'],
       name: 'idx_transfer_events_is_processed',
     },
