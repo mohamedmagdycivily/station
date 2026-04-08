@@ -1,155 +1,162 @@
-# Chat System
+# Station Transfer Events API
 
-A high-performance, scalable chat system built with NestJS. Provides RESTful APIs for managing applications, chats, and messages with asynchronous processing, race condition handling, and optimized database operations.
+A NestJS service that ingests station transfer events in batches and provides per-station reconciliation summaries. Built with idempotent writes, concurrency safety, and a CQRS read model for O(1) summary lookups.
 
-## Overview
+## Tech Stack
 
-System allows creating applications with unique tokens. Each application contains numbered chats, and each chat contains numbered messages. Chat and message creation uses asynchronous processing via RabbitMQ with race condition handling using Redis and database transactions.
+- **NestJS 10** (TypeScript) — Framework
+- **PostgreSQL 15** — Primary database
+- **Sequelize 6** — ORM (sequelize-typescript)
+- **Umzug** — Database migrations
+- **Docker & Docker Compose** — Containerization
+- **Swagger / OpenAPI** — API documentation
+- **Jest & Supertest** — Testing
 
-## Features
+## Prerequisites
 
-- **Application Management**: Create, update, and retrieve applications with auto-generated tokens
-- **Chat Management**: Create numbered chats asynchronously (returns 202 Accepted)
-- **Message Management**: Create numbered messages asynchronously (returns 202 Accepted)
-- **Asynchronous Processing**: Direct message publishing to RabbitMQ for fast processing
-- **Race Condition Handling**: Redis-based atomic number generation and inbox pattern for idempotent processing
-- **Count Synchronization**: Cron jobs sync Redis counts to MySQL every 30 minutes
+- **Node.js** 20+
+- **Docker** 20.10+ & **Docker Compose** 2.0+
+- **PostgreSQL 15** (or use Docker)
 
-## Limitations
+## Getting Started
 
-The following features are **not covered** in this implementation:
-
-- **ElasticSearch Integration**: Message search with partial matching is not implemented
-- **Cursor-based Pagination**: Pagination using cursors is not implemented
-- **Cron Job Isolation**: The count synchronization cron job runs in the same service as the API. When scaling to multiple instances, the cron job will run on each instance, potentially causing duplicate executions. It should be moved to a separate service, use a distributed lock mechanism, or be implemented as a Kubernetes CronJob to ensure only one instance executes it.
-
-## Technology Stack
-
-- **NestJS** (TypeScript) - Framework
-- **MySQL 8.0** - Primary database
-- **Redis 7.0** - Caching, counters, and number generation
-- **RabbitMQ** - Message broker
-- **Sequelize** - ORM
-- **Docker & Docker Compose** - Containerization
-
-## Quick Start
-
-### Prerequisites
-
-- Docker (20.10+)
-- Docker Compose (2.0+)
-
-### Installation
-
-1. Clone the repository:
-
-```bash
-git clone <repository-url>
-cd chat-app-nestjs
-```
-
-2. Copy `.env.example` to `.env`:
+### Run with Docker (recommended)
 
 ```bash
 cp .env.example .env
-```
-
-3. Start all services:
-
-```bash
 docker compose up --build
 ```
 
-4. Access services:
+This starts PostgreSQL and the app, runs migrations automatically, and exposes:
 
-- **API Server**: http://localhost:3001
-- **Swagger UI**: http://localhost:3001/api
-- **RabbitMQ Management**: http://localhost:15672
-
-## API Documentation
-
-- **Base URL**: http://localhost:3001/api/v1
+- **API**: http://localhost:3001
 - **Swagger UI**: http://localhost:3001/api
 
-## Database Schema
+### Run Locally
 
-### `apps`
+1. Start a PostgreSQL instance (or use the Docker one):
+   ```bash
+   docker compose up main-db -d
+   ```
 
-- `id` (BIGINT, Primary Key)
-- `token` (BIGINT, Unique)
-- `name` (VARCHAR)
-- `chat_count` (INTEGER)
-- `created_at`, `updated_at` (TIMESTAMP)
+2. Install dependencies and start the app:
+   ```bash
+   cp .env.example .env
+   npm install
+   npm run start:migrate:dev
+   ```
 
-**Indexes:**
-
-- Primary key on `id`
-- Unique index on `token` (`index_apps_on_token`)
-
-### `chats`
-
-- `id` (BIGINT, Primary Key)
-- `chat_number` (BIGINT)
-- `app_id` (BIGINT, Foreign Key → `apps.id`)
-- `message_count` (BIGINT)
-- `created_at`, `updated_at` (TIMESTAMP)
-
-**Indexes:**
-
-- Primary key on `id`
-- Unique composite index on `(app_id, chat_number)` (`index_chats_on_app_id_and_chat_number_unique`) - enforces uniqueness of chat numbers within each application
-
-### `messages`
-
-- `id` (BIGINT, Primary Key)
-- `message_number` (BIGINT)
-- `chat_id` (BIGINT, Foreign Key → `chats.id`)
-- `content` (TEXT)
-- `created_at`, `updated_at` (TIMESTAMP)
-
-**Indexes:**
-
-- Primary key on `id`
-- Unique composite index on `(chat_id, message_number)` (`index_messages_on_chat_id_and_message_number_unique`) - enforces uniqueness of message numbers within each chat
-
-### `inbox`
-
-- `id` (INTEGER, Primary Key)
-- `event_id` (BIGINT UNSIGNED, Unique)
-- `event_count` (INTEGER)
-- `created_at`, `updated_at` (TIMESTAMP)
-
-**Indexes:**
-
-- Primary key on `id`
-- Unique index on `event_id` (`inbox_event_id_unique`)
-
-## System Design
-
-### Architecture Flow
-
-1. **Client Request** → API receives POST request
-2. **Number Generation** → Get next number from Redis (atomic INCR)
-3. **Direct Publish** → Publish event directly to RabbitMQ exchange
-4. **202 Response** → Return immediately with generated number
-5. **Event Handling** → Event handlers process asynchronously (idempotent)
-6. **Count Sync** → Cron jobs sync Redis counts to MySQL every 30 minutes
-
-### Key Patterns
-
-- **Direct Publishing**: Events published directly to RabbitMQ for fast processing
-- **Inbox Pattern**: Idempotent event processing
-- **Race Condition Handling**: Redis atomic operations + database transactions
-
-## Load Testing
+## Running Tests
 
 ```bash
-# Basic load test
-npm run load-test
-
-# Heavy load test (100 concurrent users)
-npm run load-test:heavy
-
-# Extreme load test (500 concurrent users)
-npm run load-test:extreme
+npm test
 ```
+
+Tests include unit tests (mocked store), controller integration tests (supertest), cron aggregation tests, and a concurrency test against a real PostgreSQL instance.
+
+## API
+
+All responses are wrapped by `StandardInterceptor`:
+```json
+{ "status": "SUCCESS", "message": "Operation Succeeded.", "data": { ... } }
+```
+
+Errors are wrapped by `HttpExceptionFilter`:
+```json
+{ "status": "ERROR", "errors": [{ "message": "..." }] }
+```
+
+### POST /api/v1/transfers — Bulk ingest transfer events
+
+```bash
+curl -X POST http://localhost:3001/api/v1/transfers \
+  -H "Content-Type: application/json" \
+  -d '{
+    "events": [
+      {
+        "event_id": "evt-abc-123",
+        "station_id": "station-001",
+        "amount": 150.50,
+        "status": "approved",
+        "created_at": "2025-01-15T10:30:00.000Z"
+      },
+      {
+        "event_id": "evt-abc-124",
+        "station_id": "station-001",
+        "amount": 200.00,
+        "status": "rejected",
+        "created_at": "2025-01-15T10:31:00.000Z"
+      }
+    ]
+  }'
+```
+
+**Response** (201):
+```json
+{
+  "status": "SUCCESS",
+  "message": "Operation Succeeded.",
+  "data": {
+    "inserted": 2,
+    "duplicates": 0
+  }
+}
+```
+
+Re-sending the same batch returns `{ "inserted": 0, "duplicates": 2 }` — fully idempotent.
+
+### GET /api/v1/stations/:station_id/summary — Reconciliation summary
+
+```bash
+curl http://localhost:3001/api/v1/stations/station-001/summary
+```
+
+**Response** (200):
+```json
+{
+  "status": "SUCCESS",
+  "message": "Operation Succeeded.",
+  "data": {
+    "station_id": "station-001",
+    "total_approved_amount": 150.50,
+    "events_count": 2
+  }
+}
+```
+
+A non-existent station returns zeroes (not 404):
+```json
+{ "data": { "station_id": "unknown", "total_approved_amount": 0, "events_count": 0 } }
+```
+
+## Design Decisions
+
+### Idempotency
+
+Each event carries a globally unique `event_id`. The `transfer_events` table has a `UNIQUE` constraint on `event_id`. Bulk inserts use `ON CONFLICT (event_id) DO NOTHING` (via Sequelize `bulkCreate` with `ignoreDuplicates: true`), so re-sending the same events is safe and produces zero duplicates.
+
+### Concurrency Safety
+
+No application-level locking is needed. The PostgreSQL `UNIQUE` constraint on `event_id` serializes conflicting inserts at the database level. Two simultaneous POST requests with overlapping event IDs will have one succeed and the other silently skip the duplicates.
+
+### CQRS Pattern
+
+- **Write path**: `POST /transfers` inserts into `transfer_events` (append-only).
+- **Read path**: `GET /stations/:id/summary` reads from `station_summaries` (O(1) lookup).
+- **Background aggregation**: A cron job runs every 30 minutes, aggregates unprocessed events per station, upserts into `station_summaries`, and marks events as processed.
+
+### Eventual Consistency
+
+The GET summary endpoint may return data up to 30 minutes stale (the cron interval). This is an accepted tradeoff for O(1) read performance. The cron job processes all unprocessed events in a single transaction, so the read model is always consistent with itself.
+
+### Fail-Fast Validation
+
+If any event in a batch fails validation, the entire batch is rejected with a 400 error. No partial inserts occur. This is enforced by `class-validator` with `@ValidateNested({ each: true })`.
+
+### Events Count
+
+`events_count` in the summary counts ALL events regardless of status (approved, rejected, pending, etc.). This gives a complete picture of station activity. Only `total_approved_amount` filters by `status = 'approved'`.
+
+### Swappable Store
+
+The service depends on an abstract `TransferStoreInterface` (injected via `@Inject('TRANSFER_STORE')`), not the concrete `TransferEventRepository`. The binding is done in the module via `{ provide: 'TRANSFER_STORE', useExisting: TransferEventRepository }`. This allows swapping the storage layer without changing the service.
