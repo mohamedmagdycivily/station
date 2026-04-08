@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { InjectModel, InjectConnection } from '@nestjs/sequelize';
 import { Sequelize } from 'sequelize-typescript';
+import { QueryTypes } from 'sequelize';
 import { TransferEvent } from '../models/transfer-event.model';
 import { StationSummary } from '../models/station-summary.model';
 import {
@@ -25,10 +26,33 @@ export class TransferEventRepository extends TransferStoreInterface {
   async bulkCreateEvents(
     events: CreateTransferEventData[],
   ): Promise<TransferEvent[]> {
-    return this.transferEventModel.bulkCreate(events as any[], {
-      ignoreDuplicates: true,
-      conflictAttributes: ['event_id'],
+    if (events.length === 0) return [];
+
+    const values = events
+      .map(
+        (_, i) =>
+          `(:event_id_${i}, :station_id_${i}, :amount_${i}, :status_${i}, :created_at_${i}, NOW())`,
+      )
+      .join(', ');
+
+    const replacements: Record<string, string | number | Date> = {};
+    events.forEach((e, i) => {
+      replacements[`event_id_${i}`] = e.event_id;
+      replacements[`station_id_${i}`] = e.station_id;
+      replacements[`amount_${i}`] = e.amount;
+      replacements[`status_${i}`] = e.status;
+      replacements[`created_at_${i}`] = e.created_at;
     });
+
+    const results = await this.sequelize.query(
+      `INSERT INTO transfer_events (event_id, station_id, amount, status, created_at, ingested_at)
+       VALUES ${values}
+       ON CONFLICT (event_id) DO NOTHING
+       RETURNING *`,
+      { replacements, type: QueryTypes.SELECT },
+    );
+
+    return results as unknown as TransferEvent[];
   }
 
   async getStationSummary(stationId: string): Promise<StationSummary | null> {
@@ -52,7 +76,7 @@ export class TransferEventRepository extends TransferStoreInterface {
         const values = summaries
           .map(
             (_, i) =>
-              `(:station_id_${i}, :all_count_${i}, :approved_count_${i}, :approved_amount_${i})`,
+              `(:station_id_${i}, :all_count_${i}, :approved_count_${i}, :approved_amount_${i}, NOW(), NOW())`,
           )
           .join(', ');
 
@@ -66,7 +90,7 @@ export class TransferEventRepository extends TransferStoreInterface {
 
         await this.sequelize.query(
           `INSERT INTO station_summaries
-             (station_id, all_events_count, approved_events_count, total_approved_amount)
+             (station_id, all_events_count, approved_events_count, total_approved_amount, created_at, updated_at)
            VALUES ${values}
            ON CONFLICT (station_id) DO UPDATE SET
              all_events_count = station_summaries.all_events_count + EXCLUDED.all_events_count,
