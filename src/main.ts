@@ -9,11 +9,11 @@ import {
 } from './common/http.exception.filter';
 import { StandardInterceptor } from './common/standards/standard.interceptor';
 import { ValidationPipe } from '@nestjs/common';
-import { AppModule } from './app.module';
+import { TransferModule } from './transfer/transfer.module';
 
 async function bootstrap() {
   // Nest App Instance Instantiation -----------------------
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create(TransferModule);
 
   // Swagger Setup ------------------------------------------
   const swaggerDocumentConfig = new DocumentBuilder()
