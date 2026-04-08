@@ -1,0 +1,60 @@
+services:
+  main-db:
+    image: postgres:15-alpine
+    container_name: ${MAIN_DB_HOST}
+    hostname: ${MAIN_DB_HOST}
+    environment:
+      - POSTGRES_DB=${MAIN_DB_DATABASE}
+      - POSTGRES_USER=${MAIN_DB_USERNAME}
+      - POSTGRES_PASSWORD=${MAIN_DB_PASSWORD}
+    ports:
+      - '${MAIN_DB_PORT}:5432'
+    restart: always
+    networks:
+      - local-development
+    healthcheck:
+      test:
+        [
+          'CMD-SHELL',
+          'pg_isready -U ${MAIN_DB_USERNAME} -d ${MAIN_DB_DATABASE}',
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  station:
+    container_name: station
+    hostname: station
+    build:
+      context: .
+      dockerfile: ./Dockerfile
+      target: development
+    volumes:
+      - ./src:/app/src
+    environment:
+      - NODE_ENV
+      - PORT
+
+      - MAIN_DB_HOST
+      - MAIN_DB_PORT
+      - MAIN_DB_DATABASE
+      - MAIN_DB_USERNAME
+      - MAIN_DB_ROLE
+      - MAIN_DB_PASSWORD
+
+    ports:
+      - '${PORT}:${PORT}'
+    command:
+      - npm run start:migrate:dev
+    entrypoint: /bin/sh -c
+    depends_on:
+      main-db:
+        condition: service_healthy
+    privileged: true
+    networks:
+      - local-development
+
+networks:
+  local-development:
+    external: false
+    driver: bridge
