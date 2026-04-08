@@ -1,6 +1,6 @@
 # Station Transfer Events API
 
-A NestJS service that ingests station transfer events in batches and provides per-station reconciliation summaries. Built with idempotent writes, concurrency safety, and a CQRS read model for O(1) summary lookups.
+A NestJS service that ingests station transfer events in batches and provides per-station reconciliation summaries. Built with idempotent writes and concurrency safety.
 
 ## Tech Stack
 
@@ -35,6 +35,7 @@ This starts PostgreSQL and the app, runs migrations automatically, and exposes:
 ### Run Locally
 
 1. Start a PostgreSQL instance (or use the Docker one):
+
    ```bash
    docker compose up main-db -d
    ```
@@ -57,11 +58,13 @@ Tests include unit tests (mocked store), controller integration tests (supertest
 ## API
 
 All responses are wrapped by `StandardInterceptor`:
+
 ```json
 { "status": "SUCCESS", "message": "Operation Succeeded.", "data": { ... } }
 ```
 
 Errors are wrapped by `HttpExceptionFilter`:
+
 ```json
 { "status": "ERROR", "errors": [{ "message": "..." }] }
 ```
@@ -92,6 +95,7 @@ curl -X POST http://localhost:3001/api/v1/transfers \
 ```
 
 **Response** (201):
+
 ```json
 {
   "status": "SUCCESS",
@@ -112,13 +116,14 @@ curl http://localhost:3001/api/v1/stations/station-001/summary
 ```
 
 **Response** (200):
+
 ```json
 {
   "status": "SUCCESS",
   "message": "Operation Succeeded.",
   "data": {
     "station_id": "station-001",
-    "total_approved_amount": 150.50,
+    "total_approved_amount": 150.5,
     "all_events_count": 2,
     "approved_events_count": 1
   }
@@ -126,8 +131,16 @@ curl http://localhost:3001/api/v1/stations/station-001/summary
 ```
 
 A non-existent station returns zeroes (not 404):
+
 ```json
-{ "data": { "station_id": "unknown", "total_approved_amount": 0, "all_events_count": 0, "approved_events_count": 0 } }
+{
+  "data": {
+    "station_id": "unknown",
+    "total_approved_amount": 0,
+    "all_events_count": 0,
+    "approved_events_count": 0
+  }
+}
 ```
 
 ## Design Decisions
@@ -140,7 +153,7 @@ Each event carries a globally unique `event_id`. The `transfer_events` table has
 
 No application-level locking is needed. The PostgreSQL `UNIQUE` constraint on `event_id` serializes conflicting inserts at the database level. Two simultaneous POST requests with overlapping event IDs will have one succeed and the other silently skip the duplicates.
 
-### CQRS Pattern
+### Write path Vs Read path
 
 - **Write path**: `POST /transfers` inserts into `transfer_events` (append-only).
 - **Read path**: `GET /stations/:id/summary` reads from `station_summaries` (O(1) lookup).
@@ -157,6 +170,7 @@ If any event in a batch fails validation, the entire batch is rejected with a 40
 ### Events Counts
 
 The summary returns two counts:
+
 - `all_events_count` — counts ALL events regardless of status (approved, rejected, pending, etc.), giving a complete picture of station activity.
 - `approved_events_count` — counts only approved events, matching the `total_approved_amount` sum.
 
@@ -173,6 +187,7 @@ The GET summary endpoint may return data up to 30 minutes stale (the cron interv
 ### Single-Instance Cron Guard
 
 The `isRunning` flag prevents overlapping cron executions within a single process. In horizontally scaled deployments (multiple app instances), each instance runs its own cron independently. To prevent concurrent aggregation across instances, use one of:
+
 - **`pg_try_advisory_lock`** — acquire a PostgreSQL advisory lock at the start of the cron job; skip if another instance holds it.
 - **Kubernetes CronJob** — run the aggregation as a separate K8s CronJob instead of an in-process `@Cron`, ensuring only one pod runs it.
 - **Dedicated scheduling service** — delegate scheduling to an external service (e.g. Bull queue with a single worker).
