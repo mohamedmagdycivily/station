@@ -119,14 +119,15 @@ curl http://localhost:3001/api/v1/stations/station-001/summary
   "data": {
     "station_id": "station-001",
     "total_approved_amount": 150.50,
-    "events_count": 2
+    "all_events_count": 2,
+    "approved_events_count": 1
   }
 }
 ```
 
 A non-existent station returns zeroes (not 404):
 ```json
-{ "data": { "station_id": "unknown", "total_approved_amount": 0, "events_count": 0 } }
+{ "data": { "station_id": "unknown", "total_approved_amount": 0, "all_events_count": 0, "approved_events_count": 0 } }
 ```
 
 ## Design Decisions
@@ -153,10 +154,25 @@ The GET summary endpoint may return data up to 30 minutes stale (the cron interv
 
 If any event in a batch fails validation, the entire batch is rejected with a 400 error. No partial inserts occur. This is enforced by `class-validator` with `@ValidateNested({ each: true })`.
 
-### Events Count
+### Events Counts
 
-`events_count` in the summary counts ALL events regardless of status (approved, rejected, pending, etc.). This gives a complete picture of station activity. Only `total_approved_amount` filters by `status = 'approved'`.
+The summary returns two counts:
+- `all_events_count` — counts ALL events regardless of status (approved, rejected, pending, etc.), giving a complete picture of station activity.
+- `approved_events_count` — counts only approved events, matching the `total_approved_amount` sum.
 
 ### Swappable Store
 
 The service depends on an abstract `TransferStoreInterface` (injected via `@Inject('TRANSFER_STORE')`), not the concrete `TransferEventRepository`. The binding is done in the module via `{ provide: 'TRANSFER_STORE', useExisting: TransferEventRepository }`. This allows swapping the storage layer without changing the service.
+
+## Known Limitations
+
+### Eventual Consistency
+
+The GET summary endpoint may return data up to 30 minutes stale (the cron interval). This is an accepted tradeoff for O(1) read performance. The interval can be reduced (e.g. to 5 minutes) by changing the `@Cron` expression in `CronService` — the tradeoff is more frequent database writes.
+
+### Single-Instance Cron Guard
+
+The `isRunning` flag prevents overlapping cron executions within a single process. In horizontally scaled deployments (multiple app instances), each instance runs its own cron independently. To prevent concurrent aggregation across instances, use one of:
+- **`pg_try_advisory_lock`** — acquire a PostgreSQL advisory lock at the start of the cron job; skip if another instance holds it.
+- **Kubernetes CronJob** — run the aggregation as a separate K8s CronJob instead of an in-process `@Cron`, ensuring only one pod runs it.
+- **Dedicated scheduling service** — delegate scheduling to an external service (e.g. Bull queue with a single worker).
